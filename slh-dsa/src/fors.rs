@@ -175,6 +175,18 @@ pub(crate) trait ForsParams: HypertreeParams {
         adrs: &address::ForsTree,
     ) -> ForsSignature<Self> {
         let mut sig = ForsSignature::<Self>::default();
+        self.fors_sign_into(md, sk_seed, adrs, &mut sig);
+        sig
+    }
+
+    /// `fors_sign` writing into `sig` in place, so a caller can keep the signature off the stack.
+    fn fors_sign_into(
+        &self,
+        md: &Array<u8, Self::MD>,
+        sk_seed: &SkSeed<Self::N>,
+        adrs: &address::ForsTree,
+        sig: &mut ForsSignature<Self>,
+    ) {
         let indices = base_2b::<Self::K, Self::A>(md);
         for i in 0..Self::K::U32 {
             sig.0[i as usize].sk = self.fors_sk_gen(
@@ -188,7 +200,6 @@ pub(crate) trait ForsParams: HypertreeParams {
                     self.fors_node(sk_seed, (i << (Self::A::U32 - j)) + u32::from(s), j, adrs);
             }
         }
-        sig
     }
 
     fn fors_pk_from_sig(

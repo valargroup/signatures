@@ -149,6 +149,40 @@ impl<P: ParameterSet> SigningKey<P> {
         }
     }
 
+    /// [`Self::try_sign_with_context`] writing into `out` in place. The signature is tens of
+    /// kilobytes, so a caller on a small stack can allocate `out` on the heap and sign without
+    /// the signature ever passing through the stack.
+    /// # Errors
+    /// Returns an error if the context string is too long.
+    pub fn try_sign_with_context_into(
+        &self,
+        msg: &[u8],
+        ctx: &[u8],
+        opt_rand: Option<&[u8]>,
+        out: &mut Signature<P>,
+    ) -> Result<(), Error> {
+        let ctx_len = u8::try_from(ctx.len()).map_err(|_| Error::new())?;
+        let ctx_len_bytes = ctx_len.to_be_bytes();
+        let msg: &[&[u8]] = &[&[0], &ctx_len_bytes, ctx, msg];
+
+        let rand = opt_rand
+            .unwrap_or(&self.verifying_key.pk_seed.0)
+            .try_into()
+            .unwrap();
+        let sk_seed = &self.sk_seed;
+        let pk_seed = &self.verifying_key.pk_seed;
+        let ht = P::new_from_pk_seed(pk_seed);
+
+        out.randomizer = P::prf_msg(&self.sk_prf, rand, msg);
+        let digest = P::h_msg(&out.randomizer, pk_seed, &self.verifying_key.pk_root, msg);
+        let (md, idx_tree, idx_leaf) = split_digest::<P>(&digest);
+        let adrs = ForsTree::new(idx_tree, idx_leaf);
+        ht.fors_sign_into(md, sk_seed, &adrs, &mut out.fors_sig);
+        let fors_pk = ht.fors_pk_from_sig(&out.fors_sig, md, &adrs);
+        ht.ht_sign_into(&fors_pk, sk_seed, idx_tree, idx_leaf, &mut out.ht_sig);
+        Ok(())
+    }
+
     /// Implements [slh-sign] as defined in FIPS-205, using a context string.
     /// Context strings must be 255 bytes or less.
     /// # Errors

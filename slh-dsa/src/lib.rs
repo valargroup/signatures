@@ -93,6 +93,20 @@ mod tests {
     }
     test_parameter_sets!(test_sign_verify);
 
+    // Signing in place gives the same bytes as signing into a new value
+    fn test_sign_into_matches_sign<P: ParameterSet>() {
+        let mut rng = rand::rngs::OsRng;
+        let sk = SigningKey::<P>::new(&mut rng);
+        let msg = b"Hello, world!";
+        let ctx = b"Test context";
+        let expected = sk.try_sign_with_context(msg, ctx, None).unwrap();
+        let zeros = vec![0u8; <P::SigLen as typenum::Unsigned>::USIZE];
+        let mut out = Signature::<P>::try_from(zeros.as_slice()).unwrap();
+        sk.try_sign_with_context_into(msg, ctx, None, &mut out).unwrap();
+        assert_eq!(out, expected);
+    }
+    test_parameter_sets!(test_sign_into_matches_sign);
+
     // Check signature fails on modified message
     #[test]
     fn test_sign_verify_shake_128f_fail_on_modified_message() {

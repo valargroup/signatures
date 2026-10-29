@@ -104,6 +104,38 @@ pub trait HypertreeParams: XmssParams + Sized {
         HypertreeSig(sig.iter().cloned().map(Option::unwrap).collect())
     }
 
+    /// `ht_sign` writing each layer's XMSS signature into `sig` in place, so a caller can keep
+    /// the signature off the stack.
+    fn ht_sign_into(
+        &self,
+        m: &Array<u8, Self::N>,
+        sk_seed: &SkSeed<Self::N>,
+        mut idx_tree: u64,
+        mut idx_leaf: u32,
+        sig: &mut HypertreeSig<Self>,
+    ) {
+        let mut adrs = WotsHash::default();
+        adrs.tree_adrs_low.set(idx_tree);
+
+        sig.0[0] = self.xmss_sign(m, sk_seed, idx_leaf, &adrs);
+        let mut root = self.xmss_pk_from_sig(idx_leaf, &sig.0[0], m, &adrs);
+
+        for j in 1..Self::D::U32 {
+            idx_leaf = (idx_tree & ((1 << Self::HPrime::U32) - 1))
+                .try_into()
+                .expect("H' is less than 32");
+            idx_tree >>= Self::HPrime::U64;
+
+            adrs.layer_adrs.set(j);
+            adrs.tree_adrs_low.set(idx_tree);
+
+            sig.0[j as usize] = self.xmss_sign(&root, sk_seed, idx_leaf, &adrs);
+            if j != Self::D::U32 - 1 {
+                root = self.xmss_pk_from_sig(idx_leaf, &sig.0[j as usize], &root, &adrs);
+            }
+        }
+    }
+
     fn ht_verify(
         &self,
         m: &Array<u8, Self::N>,
